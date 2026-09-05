@@ -11,14 +11,14 @@ All written reasoning lives in `docs/` — start at `docs/01-Solution-Planning.m
 
 ## Current state — update this at the end of every phase
 
-**Phase 3 complete.** Features A and B ship: fleet list with SQL-computed status and filter
-counts, and the vehicle detail readings register with SOC history. Clean Architecture is now
-real — `BLoC -> use case -> repository interface`, with the DuckDB implementation injected at
-the composition root and the boundary enforced by `test/architecture_test.dart`.
-**124 tests** green, `flutter analyze` clean, verified on the emulator including a
-force-stop/relaunch.
+**Phase 4 complete.** Feature C ships: alerts persisted in DuckDB, the dismissal reason
+sheet, and 5 s undo. All four ambiguous cases from `docs/01` §3 are proven to survive a
+round-trip through the database *and* an app restart — including a dismissed warning that
+escalates to critical while the app is closed. **151 tests** green, `flutter analyze` clean,
+verified on the emulator end to end (dismiss → snackbar → undo → badge count).
 
-Next: Phase 4 — alerts, dismissal reason sheet, 5 s undo.
+Next: Phase 5 — geofences, the deterministic reducer, trips and replay. The largest phase,
+and where the brief says the real difficulty lives.
 
 | Phase | | |
 |---|---|---|
@@ -26,7 +26,7 @@ Next: Phase 4 — alerts, dismissal reason sheet, 5 s undo.
 | 1 | Schema + ingest: migrations, dedupe, `latest_readings`, `rejected_packets` | ✅ |
 | 2 | Domain: entities, status/staleness/verdict, haversine, alert escalation | ✅ |
 | 3 | Features A + B: fleet list, vehicle detail | ✅ |
-| 4 | Feature C: alerts, dismissal, undo | ⬜ |
+| 4 | Feature C: alerts, dismissal, undo | ✅ |
 | 5 | Features D + E: geofences, reducer, trips, replay | ⬜ |
 | 6 | Scale + retention, `docs/05-Performance.md` | ⬜ |
 | 7 | README, `docs/02`–`04`, screenshots, AI logs | ⬜ |
@@ -117,14 +117,41 @@ the DayCast lesson repeating: run it and look at it before calling a phase done.
 - **The `NORMAL` verdict pill wrapped to "NORMA / L"** in its fixed-width slot. Widened, and
   the label no longer soft-wraps.
 
-## Measured on the emulator, Phase 3
+## Measured on the emulator — corrected in Phase 4
 
-- **DuckDB `open()` + migrations: ~2.6–3.4 s** across three cold starts. This is the part we
-  control and it is worth attacking in Phase 6.
-- Android `Displayed`: ~11 s. **But the emulator was launched with
-  `-gpu swiftshader_indirect`, i.e. software rendering**, which inflates every UI timing.
-  **Phase 6 must relaunch with `-gpu host` before quoting any cold-start number**, and say
-  which was used.
+**Always launch the emulator with `-gpu host`.** Phase 3's numbers were taken on
+`-gpu swiftshader_indirect` (software rendering) and were inflated by roughly 4–15x, not
+only for UI work but for DuckDB too, via CPU contention:
+
+| | `-gpu swiftshader_indirect` | `-gpu host` |
+|---|---|---|
+| DuckDB `open()` + migrations | 2.6–3.4 s | **663 ms** |
+| Android `Displayed` (to first frame) | 10.7–20.6 s | **940 ms** |
+
+The software renderer was so slow the first frame sometimes never arrived within a minute.
+Any perf number taken without checking the GPU mode is worthless — Phase 6 states the mode
+alongside every figure.
+
+```bash
+emulator -avd fleet_pixel5_api34_arm64 -no-snapshot-save -no-audio -gpu host
+```
+
+## Alert decisions settled in Phase 4
+
+- **Alert instance identity is `(vehicle_id, kind, opened_at)`.** Resolved rows are kept as
+  history; a re-fire opens a new row rather than reviving the old one.
+- **At most one open alert per `(vehicle_id, kind)`** — DuckDB cannot express a partial
+  unique index, so the evaluation loop enforces it and a test asserts it.
+- **`AlertView` is the read-path type.** `Alert` carries no registration number: it is built
+  by the state machine, which knows nothing about the fleet register, so a display field on
+  it would be null half the time and lost on every round-trip. The join happens on read.
+- **No background timer.** Some transitions are driven purely by the clock — a fresh alert
+  goes stale with no new packet — so evaluation runs after ingest *and* on every alert read.
+  Waking a phone periodically to turn a pill grey is a poor trade.
+- **Dismissal persists immediately**, not deferred for the undo window; the undo *use case*
+  re-checks the window rather than trusting the UI.
+- **A dismissed alert is not badged on the fleet list.** Counting it would defeat the
+  dismissal while still hiding the alert itself — the worst of both.
 
 ## Conventions
 

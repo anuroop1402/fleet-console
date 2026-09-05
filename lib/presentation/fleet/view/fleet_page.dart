@@ -14,6 +14,7 @@ import '../bloc/fleet_bloc.dart';
 class FleetPage extends StatelessWidget {
   const FleetPage({
     required this.onVehicleTap,
+    this.onAlertsTap,
     this.onSeedData,
     this.now,
     super.key,
@@ -21,6 +22,8 @@ class FleetPage extends StatelessWidget {
 
   /// Navigation is injected so this page stays testable without a router.
   final void Function(String vehicleId) onVehicleTap;
+
+  final VoidCallback? onAlertsTap;
 
   /// Debug affordance: generate a round of telemetry.
   final Future<void> Function()? onSeedData;
@@ -35,6 +38,28 @@ class FleetPage extends StatelessWidget {
     appBar: AppBar(
       title: const Text('Fleet'),
       actions: [
+        if (onAlertsTap != null)
+          BlocBuilder<FleetBloc, FleetState>(
+            builder: (context, state) {
+              final total = state.items.fold(
+                0,
+                (sum, item) => sum + item.openAlertCount,
+              );
+              final critical = state.items.any((i) => i.hasCriticalAlert);
+              return IconButton(
+                tooltip: 'Alerts',
+                onPressed: onAlertsTap,
+                icon: Badge(
+                  isLabelVisible: total > 0,
+                  backgroundColor: critical
+                      ? const Color(0xFFB3261E)
+                      : const Color(0xFFB26A00),
+                  label: Text('$total'),
+                  child: const Icon(Icons.notifications_outlined),
+                ),
+              );
+            },
+          ),
         if (onSeedData != null)
           IconButton(
             tooltip: 'Generate telemetry',

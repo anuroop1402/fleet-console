@@ -13,7 +13,11 @@ import '../data/duckdb/fleet_database.dart';
 import '../data/ingest/telemetry_ingestor.dart';
 import '../domain/repositories/fleet_repository.dart';
 import '../domain/usecases/get_fleet_list.dart';
+import '../domain/usecases/evaluate_alerts.dart';
 import '../domain/usecases/get_vehicle_detail.dart';
+import '../domain/usecases/manage_alerts.dart';
+import '../presentation/alerts/bloc/alerts_bloc.dart';
+import '../presentation/alerts/view/alerts_page.dart';
 import '../presentation/fleet/bloc/fleet_bloc.dart';
 import '../presentation/fleet/view/fleet_page.dart';
 import '../presentation/vehicle_detail/bloc/vehicle_detail_bloc.dart';
@@ -63,6 +67,18 @@ class _FleetRoute extends StatelessWidget {
     child: Builder(
       builder: (context) => FleetPage(
         onSeedData: _generateTelemetry,
+        onAlertsTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => BlocProvider(
+              create: (_) => AlertsBloc(
+                getVisibleAlerts: locator<GetVisibleAlerts>(),
+                dismissAlert: locator<DismissAlert>(),
+                undoDismissal: locator<UndoAlertDismissal>(),
+              )..add(const AlertsRequested()),
+              child: const AlertsPage(),
+            ),
+          ),
+        ),
         onVehicleTap: (vehicleId) => Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) => BlocProvider(
@@ -96,6 +112,11 @@ Future<void> _generateTelemetry() async {
   }
 
   await ingestor.ingest(simulator.currentRound(fleet));
+
+  // Alerts are derived from readings, so they are re-evaluated as soon as new
+  // readings land. Reads evaluate too, because some transitions are driven
+  // purely by the clock rather than by a packet.
+  await locator<EvaluateAlerts>()();
 
   // Fold the WAL in, so killing the app from the launcher right now still
   // leaves the data recoverable.

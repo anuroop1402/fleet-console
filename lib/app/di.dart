@@ -14,10 +14,14 @@ import '../core/clock.dart';
 import '../data/devtools/fleet_simulator.dart';
 import '../data/duckdb/fleet_database.dart';
 import '../data/ingest/telemetry_ingestor.dart';
+import '../data/repositories/duckdb_alert_repository.dart';
 import '../data/repositories/duckdb_fleet_repository.dart';
+import '../domain/repositories/alert_repository.dart';
 import '../domain/repositories/fleet_repository.dart';
+import '../domain/usecases/evaluate_alerts.dart';
 import '../domain/usecases/get_fleet_list.dart';
 import '../domain/usecases/get_vehicle_detail.dart';
+import '../domain/usecases/manage_alerts.dart';
 
 final GetIt locator = GetIt.instance;
 
@@ -28,10 +32,22 @@ Future<void> configureDependencies({String? databasePath}) async {
     databasePath ?? await defaultDatabasePath(),
   );
 
-  // The repository is registered behind its *interface*. Nothing above the
-  // data layer can name DuckDbFleetRepository, so nothing above the data layer
-  // can accidentally depend on it.
-  final FleetRepository repository = DuckDbFleetRepository(database);
+  // Everything is registered behind its *interface*. Nothing above the data
+  // layer can name DuckDbFleetRepository, so nothing above the data layer can
+  // accidentally depend on it.
+  //
+  // One object satisfies two interfaces: FleetRepository for the screens and
+  // FleetSnapshotSource for the alert sweep. Registered behind each interface
+  // separately, so a consumer can only see the half it needs.
+  final duckDbFleet = DuckDbFleetRepository(database);
+  final FleetRepository repository = duckDbFleet;
+  final AlertRepository alertRepository = DuckDbAlertRepository(database);
+
+  final evaluateAlerts = EvaluateAlerts(
+    alerts: alertRepository,
+    snapshots: duckDbFleet,
+    clock: clock,
+  );
 
   locator
     ..registerSingleton<Clock>(clock)
@@ -52,6 +68,17 @@ Future<void> configureDependencies({String? databasePath}) async {
     )
     ..registerSingleton<GetSocHistory>(
       GetSocHistory(repository: repository, clock: clock),
+    )
+    ..registerSingleton<AlertRepository>(alertRepository)
+    ..registerSingleton<EvaluateAlerts>(evaluateAlerts)
+    ..registerSingleton<GetVisibleAlerts>(
+      GetVisibleAlerts(repository: alertRepository, evaluate: evaluateAlerts),
+    )
+    ..registerSingleton<DismissAlert>(
+      DismissAlert(repository: alertRepository, clock: clock),
+    )
+    ..registerSingleton<UndoAlertDismissal>(
+      UndoAlertDismissal(repository: alertRepository, clock: clock),
     );
 }
 

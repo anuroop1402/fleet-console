@@ -11,14 +11,16 @@ All written reasoning lives in `docs/` — start at `docs/01-Solution-Planning.m
 
 ## Current state — update this at the end of every phase
 
-**Phase 0 complete.** Spike proved DuckDB persistence on device; `docs/00-Phase0-Spike.md`
-and `docs/01-Solution-Planning.md` written. `lib/main.dart` is still the throwaway spike and
-is replaced in Phase 1.
+**Phase 1 complete.** Schema, migrations and the ingest pipeline are in, with 27 tests
+green and `flutter analyze` clean. The spike is gone; `lib/main.dart` now boots the real
+composition root and the home screen reads live counts out of DuckDB on device.
+
+Next: Phase 2 — domain rules (status, staleness/verdict, haversine, alert escalation).
 
 | Phase | | |
 |---|---|---|
 | 0 | Spike, platform decisions, `docs/00`, `docs/01` | ✅ |
-| 1 | Schema + ingest: migrations, dedupe, `latest_readings`, `rejected_packets` | ⬜ |
+| 1 | Schema + ingest: migrations, dedupe, `latest_readings`, `rejected_packets` | ✅ |
 | 2 | Domain: entities, status/staleness/verdict, haversine, alert escalation | ⬜ |
 | 3 | Features A + B: fleet list, vehicle detail | ⬜ |
 | 4 | Feature C: alerts, dismissal, undo | ⬜ |
@@ -51,6 +53,18 @@ is replaced in Phase 1.
 - **iOS simulator is dropped** — `dart_duckdb` ships a device-only `.framework`, so the
   build succeeds and then dies at runtime. Not our bug, but not our platform either.
 - `Connection` spawns one isolate each, so **connections are expensive** — pool them.
+- **Host tests work.** `dart_duckdb` is a plugin, so under `flutter test` the native library
+  is not bundled. `test/support/duckdb_test_env.dart` points at the shipped dylib by reading
+  `.dart_tool/package_config.json`. Do not use `Isolate.resolvePackageUri` — it throws
+  `Unsupported operation` in the test environment. This is why DuckDB integration tests run
+  in the fast loop instead of only on a device.
+- **`ON CONFLICT (...) DO UPDATE ... WHERE` works** on the bundled DuckDB 1.2.1, and so do
+  `QUALIFY`, `LAG` and window functions. Verified, not assumed.
+- **`ON CONFLICT` cannot update the same target row twice in one statement.** Collapse a
+  batch to one row per key with `ROW_NUMBER()` before upserting, or a batch carrying two
+  readings for one signal will fail.
+- **`prefer_initializing_formals` is disabled project-wide** — it suggests
+  `required this._field`, which is not valid Dart for a named parameter.
 
 ## Architecture — non-negotiable
 

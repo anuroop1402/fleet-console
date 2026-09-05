@@ -11,17 +11,18 @@ All written reasoning lives in `docs/` — start at `docs/01-Solution-Planning.m
 
 ## Current state — update this at the end of every phase
 
-**Phase 1 complete.** Schema, migrations and the ingest pipeline are in, with 27 tests
-green and `flutter analyze` clean. The spike is gone; `lib/main.dart` now boots the real
-composition root and the home screen reads live counts out of DuckDB on device.
+**Phase 2 complete.** Domain rules are in — status chip, staleness/verdict, haversine and
+the alert state machine — plus an architecture test that enforces the layer boundary.
+**98 tests** green, `flutter analyze` clean.
 
-Next: Phase 2 — domain rules (status, staleness/verdict, haversine, alert escalation).
+Next: Phase 3 — features A and B (fleet list with SQL status + filter counts; vehicle detail
+readings register and SOC history).
 
 | Phase | | |
 |---|---|---|
 | 0 | Spike, platform decisions, `docs/00`, `docs/01` | ✅ |
 | 1 | Schema + ingest: migrations, dedupe, `latest_readings`, `rejected_packets` | ✅ |
-| 2 | Domain: entities, status/staleness/verdict, haversine, alert escalation | ⬜ |
+| 2 | Domain: entities, status/staleness/verdict, haversine, alert escalation | ✅ |
 | 3 | Features A + B: fleet list, vehicle detail | ⬜ |
 | 4 | Feature C: alerts, dismissal, undo | ⬜ |
 | 5 | Features D + E: geofences, reducer, trips, replay | ⬜ |
@@ -72,8 +73,10 @@ Next: Phase 2 — domain rules (status, staleness/verdict, haversine, alert esca
 presentation (BLoC) → domain (entities, rules, reducers, use cases, interfaces) ← data (DuckDB)
 ```
 
-- **`domain/` imports `dart:core` and `equatable` only.** No Flutter, no `dart_duckdb`, no
-  I/O. There is an architecture test that scans imports — keep it passing.
+- **`domain/` imports `dart:core`, `dart:math` and `equatable` only.** No Flutter, no
+  `dart_duckdb`, no I/O. `test/architecture_test.dart` reads the real import statements off
+  disk and also fails on a `DateTime.now()` inside `rules/` or `reducers/`. It has been
+  verified to actually fail by deliberately breaking it — keep it that way.
 - **BLoCs call use cases. Never repositories.**
 - Repository *interfaces* live in `domain/repositories/`; implementations in
   `data/repositories/`.
@@ -82,6 +85,22 @@ presentation (BLoC) → domain (entities, rules, reducers, use cases, interfaces
   geofence versions. No I/O, no clock reads, no database. They run on ingest, not on read.
 - **Derived tables are a pure function of the log.** `geofence_visits` and `trips` are
   rebuildable by replay; if a projection and the log disagree, the log wins.
+
+## Domain decisions settled in Phase 2 — see docs/01 §3
+
+- **`VehicleStatus.unknown` exists.** The brief's four status rules are not exhaustive:
+  packets carry a subset of signals, so "online but nothing fresh to classify" is real.
+  Falling through to `STOPPED` would assert ignition-off from an absence of evidence. It has
+  no filter chip — such vehicles appear under All and nowhere else.
+- **Stale readings do not classify.** Speed and ignition are consulted only while fresh, so
+  the status chip agrees with the verdict pill showing the same reading as `STALE`.
+- **`Verdict.neverReported` is distinct from `Verdict.stale`.** "No value" and "a value we
+  refuse to judge" are different facts; only the latter draws a pill.
+- **`ConditionObservation` has three cases, not two.** `Clear` and `Unobservable` must never
+  collapse — a stale reading is not evidence a problem went away.
+- **A dismissal holds only while severity stays at or below the severity it was dismissed
+  at.** That single comparison is what makes a dismissed warning reappear on escalation to
+  critical while a dismissed critical stays hidden when it recovers to warning.
 
 ## Conventions
 

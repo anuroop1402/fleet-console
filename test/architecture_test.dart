@@ -104,6 +104,73 @@ void main() {
     });
   });
 
+  group('presentation depends only on the domain', () {
+    final files = _dartFilesUnder('lib/presentation');
+
+    test('never imports the data layer or DuckDB', () {
+      // A BLoC that can reach infrastructure eventually will. The first time
+      // one needs a field that no use case exposes, importing the repository
+      // implementation is the path of least resistance — and after that the
+      // presentation layer cannot be tested without a native library.
+      final violations = <String>[];
+
+      for (final file in files) {
+        for (final import in _importsOf(file)) {
+          final reachesData =
+              import.contains('/data/') || import.startsWith('../data/');
+          final reachesInfra =
+              import.startsWith('package:dart_duckdb') ||
+              import.startsWith('dart:ffi');
+          if (reachesData || reachesInfra) {
+            violations.add('${_relative(file)} imports $import');
+          }
+        }
+      }
+
+      expect(violations, isEmpty, reason: violations.join('\n'));
+    });
+
+    test('reaches repositories only through use cases', () {
+      // The dependency rule is BLoC -> use case -> repository interface. A BLoC
+      // holding a repository directly skips the layer that owns orchestration
+      // and clock injection, which is where the interesting logic lives.
+      final violations = <String>[];
+
+      for (final file in files) {
+        for (final import in _importsOf(file)) {
+          if (import.contains('domain/repositories/') ||
+              import.contains('/repositories/')) {
+            violations.add(
+              '${_relative(file)} imports $import — go through a use case',
+            );
+          }
+        }
+      }
+
+      expect(violations, isEmpty, reason: violations.join('\n'));
+    });
+  });
+
+  group('the composition root is the only place that wires concretes', () {
+    test('nothing outside lib/app constructs the DuckDB repository', () {
+      // get_it is a service locator, and a service locator used from a widget
+      // is a global variable with extra steps. Only lib/app may resolve.
+      final violations = <String>[];
+
+      for (final dir in ['lib/domain', 'lib/presentation']) {
+        for (final file in _dartFilesUnder(dir)) {
+          for (final import in _importsOf(file)) {
+            if (import.startsWith('package:get_it')) {
+              violations.add('${_relative(file)} imports get_it');
+            }
+          }
+        }
+      }
+
+      expect(violations, isEmpty, reason: violations.join('\n'));
+    });
+  });
+
   group('rules and reducers are pure', () {
     test('never read the clock directly', () {
       // `now` is always a parameter. A hidden DateTime.now() makes a rule's

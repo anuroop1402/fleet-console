@@ -11,11 +11,13 @@ import '../../domain/entities/fleet_view.dart';
 import '../../domain/entities/signal_kind.dart';
 import '../../domain/entities/signal_reading.dart';
 import '../../domain/entities/vehicle_status.dart';
+import '../../domain/repositories/alert_repository.dart';
 import '../../domain/repositories/fleet_repository.dart';
 import '../duckdb/fleet_database.dart';
 import '../duckdb/queries/fleet_queries.dart';
 
-final class DuckDbFleetRepository implements FleetRepository {
+final class DuckDbFleetRepository
+    implements FleetRepository, FleetSnapshotSource {
   DuckDbFleetRepository(this._db);
 
   final FleetDatabase _db;
@@ -52,6 +54,8 @@ final class DuckDbFleetRepository implements FleetRepository {
             socEventTs: row[5] as DateTime?,
             rangeKm: _toDouble(row[6]),
             lastPing: row[7] as DateTime?,
+            openAlertCount: _toInt(row[8]),
+            hasCriticalAlert: _toInt(row[9]) != 0,
           ),
       ];
     } finally {
@@ -80,6 +84,36 @@ final class DuckDbFleetRepository implements FleetRepository {
     } finally {
       await result.dispose();
       await stmt.dispose();
+    }
+  }
+
+  @override
+  Future<Map<String, VehicleSnapshot>> allVehicleSnapshots() async {
+    final result = await _conn.query(selectAllLatestReadings);
+    try {
+      final byVehicle = <String, Map<SignalKind, SignalReading>>{};
+      for (final row in result.fetchAll()) {
+        final kind = SignalKind.fromWireName(row[1]! as String);
+        // Written by a newer build. Skipping keeps the rest usable rather than
+        // failing the whole sweep.
+        if (kind == null) continue;
+
+        final vehicleId = row[0]! as String;
+        (byVehicle[vehicleId] ??= {})[kind] = SignalReading(
+          kind: kind,
+          value: _toDouble(row[2])!,
+          eventTs: row[3]! as DateTime,
+        );
+      }
+      return {
+        for (final entry in byVehicle.entries)
+          entry.key: VehicleSnapshot(
+            vehicleId: entry.key,
+            readings: entry.value,
+          ),
+      };
+    } finally {
+      await result.dispose();
     }
   }
 

@@ -6,6 +6,7 @@
 /// cannot fail it.
 library;
 
+import 'package:fleet_console/data/duckdb/schema.dart';
 import 'package:fleet_console/domain/entities/signal_kind.dart';
 import 'package:fleet_console/domain/entities/telemetry_packet.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,6 +27,7 @@ void main() {
       )).map((row) => row.first).toList();
 
       expect(tables, [
+        'alerts',
         'latest_readings',
         'location_fixes',
         'rejected_packets',
@@ -35,12 +37,22 @@ void main() {
       ]);
     });
 
-    test('records the applied version', () async {
+    test('records every applied version exactly once', () async {
       final h = await TestHarness.inMemory(now: now);
       addTearDown(h.dispose);
 
-      expect(await h.count('SELECT COUNT(*) FROM schema_migrations'), 1);
-      expect(await h.scalar('SELECT version FROM schema_migrations'), 1);
+      // Asserted against migrations.length rather than a literal, so adding a
+      // migration does not break this test — but applying one twice still does.
+      expect(
+        await h.count('SELECT COUNT(*) FROM schema_migrations'),
+        migrations.length,
+      );
+      expect(
+        (await h.rows('SELECT version FROM schema_migrations ORDER BY version'))
+            .map((row) => row.first)
+            .toList(),
+        [for (var v = 1; v <= migrations.length; v++) v],
+      );
     });
 
     test('reopening an existing database does not reapply migrations',
@@ -51,7 +63,7 @@ void main() {
 
       expect(
         await second.count('SELECT COUNT(*) FROM schema_migrations'),
-        1,
+        migrations.length,
         reason: 'migrations must be applied exactly once',
       );
     });

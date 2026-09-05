@@ -33,6 +33,18 @@ WITH per_vehicle AS (
   FROM latest_readings
   GROUP BY vehicle_id
 ),
+-- Open, undismissed alerts per vehicle. Dismissed ones are deliberately
+-- excluded: a dismissal means a human chose not to be shown it, so counting it
+-- in the badge would defeat the dismissal while still hiding the alert itself.
+alert_counts AS (
+  SELECT
+    vehicle_id,
+    COUNT(*) AS open_alerts,
+    MAX(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) AS has_critical
+  FROM alerts
+  WHERE resolved_at IS NULL AND dismissed_at IS NULL
+  GROUP BY vehicle_id
+),
 classified AS (
   SELECT
     v.vehicle_id,
@@ -42,6 +54,8 @@ classified AS (
     p.soc,
     p.soc_event_ts,
     p.range_km,
+    COALESCE(a.open_alerts, 0) AS open_alerts,
+    COALESCE(a.has_critical, 0) AS has_critical,
     CASE
       -- First match wins, in the order the brief specifies. Vehicle-level
       -- freshness first: OFFLINE outranks everything, including a speed
@@ -57,6 +71,7 @@ classified AS (
     END AS status
   FROM vehicles v
   LEFT JOIN per_vehicle p ON p.vehicle_id = v.vehicle_id
+  LEFT JOIN alert_counts a ON a.vehicle_id = v.vehicle_id
 )
 ''';
 
@@ -64,19 +79,19 @@ classified AS (
 const String selectFleetList = '''
 $fleetRollupCte
 SELECT vehicle_id, reg_number, model, status, soc, soc_event_ts, range_km,
-       last_ping
+       last_ping, open_alerts, has_critical
 FROM classified
-ORDER BY reg_number
+ORDER BY has_critical DESC, open_alerts DESC, reg_number
 ''';
 
 /// The fleet list, filtered to one status.
 const String selectFleetListFiltered = '''
 $fleetRollupCte
 SELECT vehicle_id, reg_number, model, status, soc, soc_event_ts, range_km,
-       last_ping
+       last_ping, open_alerts, has_critical
 FROM classified
 WHERE status = ?
-ORDER BY reg_number
+ORDER BY has_critical DESC, open_alerts DESC, reg_number
 ''';
 
 /// Live counts for the filter chips, over exactly the same expression as the
@@ -86,6 +101,16 @@ $fleetRollupCte
 SELECT status, COUNT(*) AS n
 FROM classified
 GROUP BY status
+''';
+
+/// Every vehicle's latest readings, in one read.
+///
+/// Alert evaluation sweeps the whole fleet, so fetching per vehicle would be one
+/// round-trip to the connection isolate per truck.
+const String selectAllLatestReadings = '''
+SELECT vehicle_id, signal, value_num, event_ts
+FROM latest_readings
+ORDER BY vehicle_id
 ''';
 
 /// Everything currently known about one vehicle's signals.

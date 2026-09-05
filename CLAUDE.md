@@ -11,19 +11,21 @@ All written reasoning lives in `docs/` — start at `docs/01-Solution-Planning.m
 
 ## Current state — update this at the end of every phase
 
-**Phase 2 complete.** Domain rules are in — status chip, staleness/verdict, haversine and
-the alert state machine — plus an architecture test that enforces the layer boundary.
-**98 tests** green, `flutter analyze` clean.
+**Phase 3 complete.** Features A and B ship: fleet list with SQL-computed status and filter
+counts, and the vehicle detail readings register with SOC history. Clean Architecture is now
+real — `BLoC -> use case -> repository interface`, with the DuckDB implementation injected at
+the composition root and the boundary enforced by `test/architecture_test.dart`.
+**124 tests** green, `flutter analyze` clean, verified on the emulator including a
+force-stop/relaunch.
 
-Next: Phase 3 — features A and B (fleet list with SQL status + filter counts; vehicle detail
-readings register and SOC history).
+Next: Phase 4 — alerts, dismissal reason sheet, 5 s undo.
 
 | Phase | | |
 |---|---|---|
 | 0 | Spike, platform decisions, `docs/00`, `docs/01` | ✅ |
 | 1 | Schema + ingest: migrations, dedupe, `latest_readings`, `rejected_packets` | ✅ |
 | 2 | Domain: entities, status/staleness/verdict, haversine, alert escalation | ✅ |
-| 3 | Features A + B: fleet list, vehicle detail | ⬜ |
+| 3 | Features A + B: fleet list, vehicle detail | ✅ |
 | 4 | Feature C: alerts, dismissal, undo | ⬜ |
 | 5 | Features D + E: geofences, reducer, trips, replay | ⬜ |
 | 6 | Scale + retention, `docs/05-Performance.md` | ⬜ |
@@ -101,6 +103,28 @@ presentation (BLoC) → domain (entities, rules, reducers, use cases, interfaces
 - **A dismissal holds only while severity stays at or below the severity it was dismissed
   at.** That single comparison is what makes a dismissed warning reappear on escalation to
   critical while a dismissed critical stays hidden when it recovers to warning.
+
+## Found by looking at the app — Phase 3
+
+Two bugs the 124-test suite did not catch, both visible in one minute on a device. This is
+the DayCast lesson repeating: run it and look at it before calling a phase done.
+
+- **`runApp` must come before opening the database.** `main()` awaited
+  `configureDependencies()` first, so there was no Flutter UI at all until DuckDB had opened
+  and replayed its WAL — a blank white screen for tens of seconds after a force-stop. Now
+  `runApp` is immediate and `BootstrapGate` shows a loading state, an error screen with retry,
+  and records `BootstrapTimings`.
+- **The `NORMAL` verdict pill wrapped to "NORMA / L"** in its fixed-width slot. Widened, and
+  the label no longer soft-wraps.
+
+## Measured on the emulator, Phase 3
+
+- **DuckDB `open()` + migrations: ~2.6–3.4 s** across three cold starts. This is the part we
+  control and it is worth attacking in Phase 6.
+- Android `Displayed`: ~11 s. **But the emulator was launched with
+  `-gpu swiftshader_indirect`, i.e. software rendering**, which inflates every UI timing.
+  **Phase 6 must relaunch with `-gpu host` before quoting any cold-start number**, and say
+  which was used.
 
 ## Conventions
 

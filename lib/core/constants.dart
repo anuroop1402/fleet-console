@@ -49,6 +49,48 @@ abstract final class IngestPolicy {
   static const Duration duplicateLookback = Duration(hours: 24);
 }
 
+/// The deterministic strategy for turning noisy GPS into geofence transitions.
+///
+/// The brief names seven failure modes — duplicates, late packets, jitter,
+/// inaccurate readings, overlaps, missing intervals and geofence edits. These
+/// are the numbers that resolve them. Every one is a judgement call, so every
+/// one is named here where it can be argued with.
+abstract final class GeofencePolicy {
+  /// A fix worse than this cannot decide any fence we would plausibly draw,
+  /// so it is dropped rather than allowed to vote.
+  static const double maxUsableAccuracyMetres = 200;
+
+  /// Minimum hysteresis band, even for a pin-sharp fix.
+  ///
+  /// Membership is not a bare radius test. Inside requires `d < R - buffer`,
+  /// outside requires `d > R + buffer`, and between the two the state is
+  /// *sticky*. Without this a truck parked on a boundary generates an endless
+  /// stream of entries and exits — and therefore an endless stream of trips.
+  static const double minHysteresisMetres = 15;
+
+  /// A fix implying more than this from the previous accepted fix is a bad
+  /// fix, not a fast truck.
+  static const double maxPlausibleSpeedKmh = 200;
+
+  /// Consecutive agreeing fixes needed before a transition is *confirmed*.
+  ///
+  /// Feature E's "confirmed exit" and "confirmed entry" are exactly this
+  /// debounce. One fix is an opinion; two in a row that also survive the dwell
+  /// window are a crossing.
+  static const int confirmationFixes = 2;
+
+  /// Minimum time in the new state before a transition is confirmed.
+  static const Duration confirmationDwell = Duration(seconds: 60);
+
+  /// A silence longer than this breaks the dwell chain.
+  ///
+  /// After a gap we cannot claim continuous presence, so state is
+  /// re-established from scratch and anything inferred across the gap is
+  /// stamped at the first post-gap fix and flagged. Honest-but-late beats a
+  /// fabricated timestamp.
+  static const Duration maxReportingGap = Duration(minutes: 30);
+}
+
 /// What is kept, and for how long. An append-only log grows forever.
 ///
 /// The coupling worth stating out loud: **raw retention is the replay horizon.**

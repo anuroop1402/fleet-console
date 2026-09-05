@@ -21,8 +21,12 @@ linter:
   # `// ignore_for_file: name_of_lint` syntax on the line or in the file
   # producing the lint.
   rules:
-    # avoid_print: false  # Uncomment to disable the `avoid_print` rule
-    # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
+    # Fires on `_field = param` in a constructor initializer and suggests
+    # `required this._field` instead. That is not valid Dart — a named
+    # parameter cannot start with an underscore, so the suggested fix does
+    # not compile. Every class here has private fields and named parameters,
+    # which makes this a permanent false positive rather than a one-off.
+    prefer_initializing_formals: false
 
 # Additional information about this file can be found at
 # https://dart.dev/guides/language/analysis-options

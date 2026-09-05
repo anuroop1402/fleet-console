@@ -8,6 +8,7 @@ library;
 
 import 'package:equatable/equatable.dart';
 
+import 'alert.dart';
 import 'signal_kind.dart';
 import 'signal_reading.dart';
 import 'vehicle_status.dart';
@@ -173,4 +174,23 @@ final class VehicleReadings extends Equatable {
 
   @override
   List<Object?> get props => [vehicle, snapshot];
+}
+
+/// An alert together with the vehicle identity a human recognises.
+///
+/// [Alert] deliberately does not carry a registration number. It is constructed
+/// by the state machine, which knows nothing about the fleet register, so a
+/// display field on it would be null half the time and lost on every
+/// round-trip. The read path joins it on instead.
+final class AlertView extends Equatable {
+  const AlertView({required this.alert, required this.regNumber});
+
+  final Alert alert;
+
+  /// What the operator calls this truck. Falls back to the vehicle id only if
+  /// the register somehow has no row.
+  final String regNumber;
+
+  @override
+  List<Object?> get props => [alert, regNumber];
 }

@@ -14,8 +14,13 @@
 library;
 
 /// Ordered, append-only. Never edit a migration that has shipped; add another.
+///
+/// Position in this list *is* the version number, so an existing database on a
+/// device applies only what it has not seen. Editing a shipped migration would
+/// mean devices that already ran it silently never get the change.
 const List<String> migrations = [
   _migration001Initial,
+  _migration002Alerts,
 ];
 
 const String _migration001Initial = '''
@@ -89,6 +94,46 @@ CREATE TABLE IF NOT EXISTS rejected_packets (
   ingested_ts  TIMESTAMP NOT NULL,
   reason       VARCHAR   NOT NULL,
   detail       VARCHAR
+);
+''';
+
+const String _migration002Alerts = '''
+-- One row per alert *instance*.
+--
+-- Identity is (vehicle_id, kind, opened_at). A condition that clears and later
+-- re-fires produces a NEW row with a new opened_at rather than reviving the old
+-- one, because a new occurrence deserves a fresh decision from whoever is
+-- watching. Resolved rows are kept: they are the alert history, and they are
+-- what makes "this truck has been low three times today" answerable.
+--
+-- At most one row per (vehicle_id, kind) may have resolved_at IS NULL. DuckDB
+-- cannot express a partial unique index, so that invariant is enforced by the
+-- evaluation code and asserted in tests rather than by the schema.
+CREATE TABLE IF NOT EXISTS alerts (
+  vehicle_id             VARCHAR   NOT NULL,
+  kind                   VARCHAR   NOT NULL,
+  opened_at              TIMESTAMP NOT NULL,
+
+  -- Tracks the *current* condition, so it de-escalates as well as escalates.
+  severity               VARCHAR   NOT NULL,
+
+  resolved_at            TIMESTAMP,
+  dismissed_at           TIMESTAMP,
+
+  -- The severity the human was looking at when they dismissed. This is the
+  -- column that makes re-escalation work: a dismissal holds only while the
+  -- condition stays at or below it.
+  dismissed_at_severity  VARCHAR,
+  dismissal_reason       VARCHAR,
+
+  -- The reading behind an open alert has gone stale. The alert stays open --
+  -- resolving would assert a recovery we cannot see.
+  is_condition_stale     BOOLEAN   NOT NULL,
+  last_known_value       DOUBLE,
+  last_known_at          TIMESTAMP,
+
+  updated_at             TIMESTAMP NOT NULL,
+  PRIMARY KEY (vehicle_id, kind, opened_at)
 );
 ''';
 

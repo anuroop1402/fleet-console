@@ -1,0 +1,52 @@
+name: fleet_console
+description: "Local-first fleet telemetry console over an embedded DuckDB database."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # DuckDB — PINNED EXACTLY, NOT A CARET RANGE. This is deliberate.
+  #
+  # The obvious constraint `^1.2.0` resolves to 1.4.4, which CANNOT BUILD for
+  # Android or iOS: its Gradle script and podspec download the native library
+  # from GitHub release tags that do not exist (v1.4.4 and v1.4.1 both 404).
+  # 1.4.1, 1.4.2 and 1.4.3 are broken the same way. Upstream issues #42, #39, #38;
+  # the repo has had no commits since Nov 2025.
+  #
+  # 1.2.2 downloads from the v1.2.0 release, whose assets exist. Engine: DuckDB 1.2.1.
+  # Do not widen this constraint without re-checking that the release assets resolve.
+  dart_duckdb: 1.2.2
+
+  # Presentation: BLoC over Clean Architecture.
+  flutter_bloc: ^9.1.1
+  bloc: ^9.2.1
+
+  # Value equality for domain entities. The only package `domain/` may import.
+  equatable: ^2.1.0
+
+  # Composition root.
+  get_it: ^9.2.1
+
+  # Database file location on device.
+  path_provider: ^2.1.5
+  path: ^1.9.1
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+
+  bloc_test: ^10.0.0
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

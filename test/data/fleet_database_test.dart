@@ -26,13 +26,20 @@ void main() {
         "WHERE table_schema = 'main' ORDER BY table_name",
       )).map((row) => row.first).toList();
 
+      // Deliberately an exact list, not a "contains". It has caught every
+      // schema change so far, which is the point: adding a table should be a
+      // decision, not something that slips in.
       expect(tables, [
         'alerts',
+        'geofence_versions',
+        'geofence_visits',
+        'geofences',
         'latest_readings',
         'location_fixes',
         'rejected_packets',
         'schema_migrations',
         'signal_readings',
+        'trips',
         'vehicles',
       ]);
     });

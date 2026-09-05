@@ -21,6 +21,7 @@ library;
 const List<String> migrations = [
   _migration001Initial,
   _migration002Alerts,
+  _migration003Geofences,
 ];
 
 const String _migration001Initial = '''
@@ -134,6 +135,70 @@ CREATE TABLE IF NOT EXISTS alerts (
 
   updated_at             TIMESTAMP NOT NULL,
   PRIMARY KEY (vehicle_id, kind, opened_at)
+);
+''';
+
+const String _migration003Geofences = '''
+-- The fence register: stable identity only. Everything that can change lives
+-- in geofence_versions.
+CREATE TABLE IF NOT EXISTS geofences (
+  geofence_id  VARCHAR   NOT NULL,
+  created_at   TIMESTAMP NOT NULL,
+  PRIMARY KEY (geofence_id)
+);
+
+-- Slowly-changing dimension, type 2. Editing a fence closes the current row and
+-- opens a new one; deactivating closes without reopening.
+--
+-- valid_from/valid_to are in EVENT time, not wall-clock, because that is what
+-- history is judged against: a fix from last month is evaluated against the
+-- version that was live last month. Without this, resizing a depot silently
+-- rewrites every trip that ever touched it.
+CREATE TABLE IF NOT EXISTS geofence_versions (
+  version_id     VARCHAR   NOT NULL,
+  geofence_id    VARCHAR   NOT NULL,
+  name           VARCHAR   NOT NULL,
+  latitude       DOUBLE    NOT NULL,
+  longitude      DOUBLE    NOT NULL,
+  radius_m       DOUBLE    NOT NULL,
+  valid_from     TIMESTAMP NOT NULL,
+  valid_to       TIMESTAMP,
+  is_active      BOOLEAN   NOT NULL,
+  created_at     TIMESTAMP NOT NULL,
+  PRIMARY KEY (version_id)
+);
+
+-- DERIVED. A pure function of (location_fixes x geofence_versions), rebuilt by
+-- replay. If this table and the fix log ever disagree, the log wins.
+CREATE TABLE IF NOT EXISTS geofence_visits (
+  vehicle_id           VARCHAR   NOT NULL,
+  geofence_id          VARCHAR   NOT NULL,
+  version_id           VARCHAR   NOT NULL,
+  entered_at           TIMESTAMP NOT NULL,
+  exited_at            TIMESTAMP,
+  inferred_during_gap  BOOLEAN   NOT NULL,
+  PRIMARY KEY (vehicle_id, geofence_id, entered_at)
+);
+
+-- DERIVED, same contract as geofence_visits.
+--
+-- trip_id is derived from (vehicle_id, started_at) rather than generated, so a
+-- replay reproduces the same rows instead of a parallel set of duplicates. That
+-- single property is what lets a late packet revise a boundary without
+-- doubling the trip.
+CREATE TABLE IF NOT EXISTS trips (
+  trip_id                  VARCHAR   NOT NULL,
+  vehicle_id               VARCHAR   NOT NULL,
+  status                   VARCHAR   NOT NULL,
+  started_at               TIMESTAMP NOT NULL,
+  origin_geofence_id       VARCHAR,
+  origin_version_id        VARCHAR,
+  ended_at                 TIMESTAMP,
+  destination_geofence_id  VARCHAR,
+  destination_version_id   VARCHAR,
+  destination_unknown      BOOLEAN   NOT NULL,
+  inferred_during_gap      BOOLEAN   NOT NULL,
+  PRIMARY KEY (trip_id)
 );
 ''';
 
